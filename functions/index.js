@@ -3,6 +3,9 @@ const { initializeApp } = require('firebase-admin/app');
 const admin = require('firebase-admin');
 const logger = require("firebase-functions/logger");
 const webpush = require("web-push")
+require('dotenv').config()
+
+const PASSKEY = process.env.PASSKEY
 
 initializeApp();
 
@@ -37,7 +40,31 @@ const sendNotification = async (type, subscriber) => new Promise((resolve, rejec
     )
     webpush.sendNotification(subscriber, type)
     .then(() => { resolve(true) })
-    .catch(error => { resolve(false) })
+    .catch(error => { logger.log(error); resolve(false) })
+})
+
+exports.emergency = onRequest(async (request, response) => {
+    const queryParams = request.query
+    const ip = request.headers['x-forwarded-for'] || request.connection.remoteAddress || request.headers['fastly-client-ip']
+    const title = queryParams.title || ''
+    const message = queryParams.message || ''
+    const passkey = queryParams.passkey || ''
+
+    if (title.length < 3 || message.length < 3 || passkey.length !== 12 || passkey !== PASSKEY) {
+        response.send("INVALID");
+        return 
+    }
+
+    const subscribers = await getAll()
+    subscribers.forEach(async subscriber => {
+        const success = await sendNotification(JSON.stringify({
+            title, message, header: 'EMERGENCY'
+        }), subscriber.webpush_details)
+        if (!success) logger.log('Failed to send Emergency Message')
+    })
+
+    logger.log(`IP: ${ip} sent Emergency Message: ${title} - ${message}`)
+    response.send("SUCCESS");
 })
 
 exports.remind = onRequest(async (request, response) => {
